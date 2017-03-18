@@ -49,15 +49,15 @@ ActionBar* MainWindow::createActionBar() {
     // Add some navigation links to the action bar
     QAction* newsAction=new QAction(tr("News"),this);
     connect(newsAction,&QAction::triggered,this,&MainWindow::goToNews);
-    bar->addNavigation(newsAction);
+    bar->addView(newsAction);
 
     QAction* weatherAction=new QAction(tr("Weather"),this);
     connect(weatherAction,&QAction::triggered,this,&MainWindow::goToWeather);
-    bar->addNavigation(weatherAction);
+    bar->addView(weatherAction);
 
     QAction* sportsAction= new QAction(tr("Sports"),this);
     connect(sportsAction,&QAction::triggered,this,&MainWindow::goToSports);
-    bar->addNavigation(sportsAction);
+    bar->addView(sportsAction);
 
     // Add some buttons to the action bar
     QAction* smallerAction=new QAction(QIcon(":/icons/smaller"),tr("Smaller"),this);

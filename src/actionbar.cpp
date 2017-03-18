@@ -1,24 +1,64 @@
+/*
+ * actionbar.cpp
+ *
+ * (c) 2015 by Muhammad Bashir Al-Noimi
+ * (c) 2014 by Stefan Frings
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ */
+
 /**
   @file
+  @author Muhammad Bashir Al-Noimi
   @author Stefan Frings
 */
 
 #include "actionbar.h"
+#include "menustyle.h"
 #include <QIcon>
-#include <QFontMetrics>
 #include <QFont>
 #include <QApplication>
+#include <QScreen>
+#include <QStyleFactory>
 #include <QStyleOption>
 #include <QPainter>
 
 ActionBar::ActionBar(QWidget *parent) : QWidget(parent) {
-    setStyleSheet(
-        "* {background:lightGray}"
-        "QToolButton {height:1.6em}"
-        "QToolButton QMenu::item {padding: 0.3em 1.5em 0.3em 1.5em; border: 1px solid transparent}"
-        "QToolButton QMenu::item::selected {border-color: black}");
-
-    //  "QToolButton#viewControl {font:bold}"
+    int paddingPixels = MenuStyle::dpToPixels(16);
+    int minWidth = MenuStyle::dpToPixels(48);
+    styleSheetTemplate = QString(
+            "* {background:lightGray}"
+            "QToolButton {height: %3px; min-width: %2px}"
+            "QToolButton QMenu::item {padding: %1px %1px %1px %1px; border: 1px solid transparent}"
+            "QToolButton QMenu::indicator {image: none}"
+            "QToolButton QMenu::item::selected {border-color: black}"
+            "QToolButton#viewControl {font:bold}"
+            "QToolButton::menu-indicator {image: none}").arg(paddingPixels).arg(minWidth);
+    QStyle *style = QStyleFactory::create("Android");
+    setStyle(new MenuStyle(style));
+    QScreen *screen = qApp->primaryScreen();
+    QSizeF physicalSize = screen->physicalSize();
+    if (qMax(physicalSize.width(), physicalSize.height()) > 145) {
+        // Over 6.5" screen, this is a tablet
+        setStyleSheet(styleSheetTemplate.arg(MenuStyle::dpToPixels(56)));
+    }
+    else {
+        // Phone, height changes when the screen is rotated
+        screenGeometryChanged(screen->geometry());
+        connect(screen, &QScreen::geometryChanged, this, &ActionBar::screenGeometryChanged);
+    }
 
     // Create layout
     layout=new QHBoxLayout(this);
@@ -27,11 +67,15 @@ ActionBar::ActionBar(QWidget *parent) : QWidget(parent) {
     layout->setContentsMargins(0,0,0,0);
     layout->setSizeConstraint(QLayout::SetNoConstraint);
 
-    // App Icon and Up Button
+    // App Icon, Up, and Navigation Button
     appIcon=new QToolButton();
     appIcon->setIcon(QIcon(":/icons/app"));
     appIcon->setAutoRaise(true);
     appIcon->setFocusPolicy(Qt::NoFocus);
+    appIcon->setPopupMode(QToolButton::InstantPopup);
+    navigationMenu = new QMenu(appIcon);
+    connect(navigationMenu, &QMenu::aboutToHide, this, &ActionBar::aboutToHideNavigationMenu);
+    connect(navigationMenu, &QMenu::aboutToShow, this, &ActionBar::aboutToShowNavigationMenu);
     layout->addWidget(appIcon);
 
     // View Control Button
@@ -42,12 +86,11 @@ ActionBar::ActionBar(QWidget *parent) : QWidget(parent) {
     viewControl->setFocusPolicy(Qt::NoFocus);
     viewControl->setPopupMode(QToolButton::InstantPopup);
     viewMenu=new QMenu(viewControl);
-    viewMenu->setStyle(&menuStyle); // needed because the icon size cannot be set by a StyleSheet
     viewControl->setMenu(viewMenu);
     layout->addWidget(viewControl);
 
     // Spacer
-    layout->addStretch();
+    layout->addStretch(1);
 
     // Action Overflow Button
     overflowButton=new QToolButton();
@@ -57,7 +100,6 @@ ActionBar::ActionBar(QWidget *parent) : QWidget(parent) {
     overflowButton->setFocusPolicy(Qt::NoFocus);
     overflowButton->setPopupMode(QToolButton::InstantPopup);
     overflowMenu=new QMenu(overflowButton);
-    overflowMenu->setStyle(&menuStyle); // needed because the icon size cannot be set by a StyleSheet
     overflowButton->setMenu(overflowMenu);
     layout->addWidget(overflowButton);
 }
@@ -80,17 +122,34 @@ void ActionBar::paintEvent(QPaintEvent*) {
      style()->drawPrimitive(QStyle::PE_Widget, &opt, &p, this);
  }
 
+void ActionBar::screenGeometryChanged(const QRect &geometry)
+{
+    if (geometry.height() > geometry.width()) {
+        setStyleSheet(styleSheetTemplate.arg(MenuStyle::dpToPixels(48)));
+    }
+    else {
+        setStyleSheet(styleSheetTemplate.arg(MenuStyle::dpToPixels(40)));
+    }
+}
+
 void ActionBar::setTitle(const QString& title, bool showUpButton) {
     viewControl->setText(title);
-    if (showUpButton) {
+    if (!navigationMenu->isEmpty()) {
+        appIcon->setIcon(QIcon(":/icons/menu"));
+        disconnect(appIcon, &QToolButton::clicked, this, &ActionBar::appIconClicked);
+        appIcon->setMenu(navigationMenu);
+    }
+    else if (showUpButton) {
         (qApp->layoutDirection() == Qt::LeftToRight) ? appIcon->setIcon(QIcon(":/icons/app_up")) : appIcon->setIcon(QIcon(":/icons/app_up_rtl"));
         appIcon->setToolTip(tr("up"));
         connect(appIcon, &QToolButton::clicked, this, &ActionBar::appIconClicked);
+        appIcon->setMenu(0);
     }
     else {
         appIcon->setIcon(QIcon(":/icons/app"));
         appIcon->setToolTip("");
         disconnect(appIcon, &QToolButton::clicked, this, &ActionBar::appIconClicked);
+        appIcon->setMenu(0);
     }
     adjustContent();
 }
@@ -104,81 +163,78 @@ void ActionBar::appIconClicked() {
 }
 
 void ActionBar::adjustContent() {
-    // Get size of one em (text height in pixels)
-    int em=fontMetrics().height();
+    int screenWidth = qApp->primaryScreen()->availableSize().width();
+
+    if (!navigationMenu->isEmpty()) {
+        appIcon->setIcon(QIcon(":/icons/menu"));
+        disconnect(appIcon, &QToolButton::clicked, this, &ActionBar::appIconClicked);
+        appIcon->setMenu(navigationMenu);
+    }
 
     viewMenu->repaint();
+    overflowButton->hide();
 
-    // update size of app icon and overflow menu button
-    appIcon->setIconSize(QSize(2*em,2*em));
-    overflowButton->setIconSize(QSize(2*em,2*em));
-
-    // Check if all action buttons fit into the available space with text beside icon.
-    bool needOverflow=false;
-    int space=width() - appIcon->sizeHint().width() - viewControl->sizeHint().width();
-    for (int i=0; i<buttonActions.size(); i++) {
-        QAction* action=buttonActions.at(i);
-        QToolButton* button=actionButtons.at(i);
+    // Check if all action buttons fit into the available space.
+    for (int i = 0; i < buttonActions.size(); i++) {
+        QAction *action = buttonActions.at(i);
+        QToolButton *button = actionButtons.at(i);
         if (action->isVisible()) {
-            button->setIconSize(QSize(2*em,2*em));
-            button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-            space-=button->sizeHint().width();
+            button->show();
         }
     }
-    if (space<0) {
-        // Not enough space.
-        // Check if all action buttons fit into the available space without text.
-        int space=width() - appIcon->sizeHint().width() - viewControl->sizeHint().width();
-        for (int i=0; i<buttonActions.size(); i++) {
-            QAction* action=buttonActions.at(i);
-            QToolButton* button=actionButtons.at(i);
-            if (action->isVisible()) {
-                button->setToolButtonStyle(Qt::ToolButtonIconOnly);
-                space-=button->sizeHint().width();
-            }
-        }
-        if (space<0) {
-            // The buttons still don't fit, we need an overflow menu.
-            needOverflow=true;
-        }
+    if (sizeHint().width() > screenWidth) {
+        // The buttons don't fit, we need an overflow menu.
+        overflowButton->show();
+        overflowMenu->clear();
     }
-
-    // Calculate space available to display action buttons
-    overflowMenu->clear();
-    space=width() - appIcon->sizeHint().width() - viewControl->sizeHint().width();
-    if (needOverflow) {
-        space-=overflowButton->sizeHint().width();
+    else {
+        overflowButton->hide();
     }
 
     // Show/Hide action buttons and overflow menu entries
-    for (int i=0; i<buttonActions.size(); i++) {
-        QAction* action=buttonActions.at(i);
-        QToolButton* button=actionButtons.at(i);
+    QAction *lastAction = 0;
+    for (int i = buttonActions.size() - 1; i >= 0; i--) {
+        QAction *action = buttonActions.at(i);
+        QToolButton *button = actionButtons.at(i);
         if (action->isVisible()) {
-            space-=button->sizeHint().width();
-            if (space>=0) {
+            if (sizeHint().width() <= screenWidth) {
                 // show as button
-                button->setDisabled(!buttonActions.at(i)->isEnabled());
                 button->show();
             }
             else {
                 // show as overflow menu entry
                 button->hide();
-                overflowMenu->addAction(action);
+                overflowMenu->insertAction(lastAction, action);
+                lastAction = action;
             }
         }
     }
+}
 
-    // Show/Hide the overflow menu button
-    if (needOverflow) {
-        overflowButton->show();
-    }
-    else {
-        overflowButton->hide();
+void ActionBar::addMenuItem(QAction* action) {
+    QWidget::addAction(action);
+    navigationMenu->addAction(action);
+    if (!navigationMenu->isEmpty()) {
+        appIcon->setMenu(navigationMenu);
     }
 }
 
-void ActionBar::addNavigation(QAction* action) {
+void ActionBar::addMenuItems(QList<QAction*> actions) {
+    QWidget::addActions(actions);
+    for (int i = 0; i < actions.size(); i++) {
+        addAction(actions.at(i));
+    }
+}
+
+void ActionBar::removeMenuItem(QAction* action) {
+    QWidget::removeAction(action);
+    navigationMenu->removeAction(action);
+    if (navigationMenu->isEmpty()) {
+        appIcon->setMenu(0);
+    }
+}
+
+void ActionBar::addView(QAction* action) {
     QWidget::addAction(action);
     viewMenu->addAction(action);
     if (!viewMenu->isEmpty()) {
@@ -186,14 +242,14 @@ void ActionBar::addNavigation(QAction* action) {
     }
 }
 
-void ActionBar::addNavigations(QList<QAction*> actions) {
+void ActionBar::addViews(QList<QAction*> actions) {
     QWidget::addActions(actions);
     for (int i=0; i<actions.size(); i++) {
         addAction(actions.at(i));
     }
 }
 
-void ActionBar::removeNavigation(QAction* action) {
+void ActionBar::removeView(QAction* action) {
     QWidget::removeAction(action);
     viewMenu->removeAction(action);
     if (viewMenu->isEmpty()) {
@@ -209,13 +265,18 @@ void ActionBar::addButton(QAction* action, int position) {
     QToolButton* button=new QToolButton();
     button->setText(action->text());
     button->setToolTip(action->text());
-    button->setIcon(action->icon());
-    button->setDisabled(!action->isEnabled());
+    QIcon icon = action->icon();
+    if (!icon.isNull()) {
+        button->setIcon(action->icon());
+        button->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    }
+    button->setEnabled(action->isEnabled());
     button->setFocusPolicy(Qt::NoFocus);
     button->setAutoRaise(true);
-    connect(button,&QToolButton::clicked,action,&QAction::trigger);
-    actionButtons.insert(position,button);
-    layout->insertWidget(position+3,button);
+    connect(button, &QToolButton::clicked, action, &QAction::trigger);
+    connect(action, &QAction::changed, this, &ActionBar::actionChanged);
+    actionButtons.insert(position, button);
+    layout->insertWidget(position + 3, button);
 }
 
 void ActionBar::removeButton(QAction* action) {
@@ -240,4 +301,20 @@ void ActionBar::openOverflowMenu() {
     }
 }
 
+void ActionBar::actionChanged()
+{
+    QAction *action = qobject_cast<QAction *>(sender());
+    int index = buttonActions.indexOf(action);
+    actionButtons[index]->setEnabled(action->isEnabled());
+    actionButtons[index]->setIcon(action->icon());
+}
 
+void ActionBar::aboutToHideNavigationMenu()
+{
+    appIcon->setIcon(QIcon(":/icons/menu"));
+}
+
+void ActionBar::aboutToShowNavigationMenu()
+{
+    (qApp->layoutDirection() == Qt::LeftToRight) ? appIcon->setIcon(QIcon(":/icons/app_up")) : appIcon->setIcon(QIcon(":/icons/app_up_rtl"));
+}

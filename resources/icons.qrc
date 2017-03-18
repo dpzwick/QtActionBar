@@ -9,5 +9,6 @@
         <file alias="email">icons/ic_action_email.png</file>
         <file alias="app_up">icons/app_up.png</file>
         <file alias="app_up_rtl">icons/app_up_rtl.png</file>
+        <file alias="menu">icons/ic_menu_black.png</file>
     </qresource>
 </RCC>

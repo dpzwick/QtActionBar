@@ -1,12 +1,33 @@
+/*
+ * actionbar.h
+ *
+ * (c) 2015 by Muhammad Bashir Al-Noimi
+ * (c) 2014 by Stefan Frings
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2.1 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
+ */
+
 /**
   @file
+  @author Muhammad Bashir Al-Noimi
   @author Stefan Frings
 */
 
 #ifndef ACTIONBAR_H
 #define ACTIONBAR_H
 
-#include "menustyle.h"
 #include <QWidget>
 #include <QList>
 #include <QAction>
@@ -38,8 +59,8 @@
  *     // Action bar
  *     ActionBar* actionBar=new ActionBar(this);
  *     actionBar->setTitle("My App",false);
- *     actionBar->addNavigation(new QAction("News",this));
- *     actionBar->addNavigation(new QAction("Weather",this));
+ *     actionBar->addView(new QAction("News",this));
+ *     actionBar->addView(new QAction("Weather",this));
  *     actionBar->addButton(new QAction(QIcon(":icons/search"),"Search",this));
  *     actionBar->addButton(new QAction(QIcon(":icons/call"),"Call",this));
  *     actionBar->addButton(new QAction(QIcon(":icons/settings"),"Settings",this));
@@ -78,6 +99,25 @@ public:
     ~ActionBar();
 
     /**
+     * Adds an item to the navigation menu of the action bar.
+     * @param action The action, containing at least a text and optionally an icon. The action emits signal triggered() when clicked.
+     */
+    void addMenuItem(QAction* action);
+
+    /**
+     * Adds many items to the navigation menu of the action bar.
+     * @param actions List of actions.
+     * @see addAction()
+     */
+    void addMenuItems(QList<QAction*> actions);
+
+    /**
+     * Removes an item from the navigation menu of the action bar.
+     * @param action The action that had been added before.
+     */
+    void removeMenuItem(QAction* action);
+
+    /**
      * Set title of the action bar.
      * @param title Either the name of the application or title of the current view within the application.
      * @param showUpButton Enables "up" navigation. Then the action bar emits signal up() on click on the icon.
@@ -89,22 +129,22 @@ public:
 
     /**
      * Adds a view navigation link to the title of the action bar.
-     * @param action The action, containing at least a text and optinally an icon. The action emits signal triggered() when clicked.
+     * @param action The action, containing at least a text and optionally an icon. The action emits signal triggered() when clicked.
      */
-    void addNavigation(QAction* action);
+    void addView(QAction* action);
 
     /**
      * Adds many view navigation links to the title of the action bar.
      * @param actions List of actions.
      * @see addAction()
      */
-    void addNavigations(QList<QAction*> actions);
+    void addViews(QList<QAction*> actions);
 
     /**
      * Removes a view navigation link from the title of the action bar.
      * @param action The action that had been added before.
      */
-    void removeNavigation(QAction* action);
+    void removeView(QAction* action);
 
     /**
      * Adds an action button (or overflow menu item) to the action bar.
@@ -151,6 +191,9 @@ private:
     /** The Button that contains the applications icon, used for "up" navigation. */
     QToolButton* appIcon;
 
+    /** The menu that appears when the user clicks on the navigation menu button */
+    QMenu* navigationMenu;
+
     /** The button that contains the title, used for view navigation. */
     QToolButton* viewControl;
 
@@ -169,13 +212,24 @@ private:
     /** The menu that appears when the user clicks on the overflow button. */
     QMenu* overflowMenu;
 
-    /** Used to control the size of icons in menu items. */
-    MenuStyle menuStyle;
+    /** Style sheet template for this widget, taking its height in pixels as a parameter */
+    QString styleSheetTemplate;
 
 private slots:
+    /** Listener for changes in action enabled/disabled status */
+    void actionChanged();
+
     /** Internally used to forward events from the appIcon button. */
     void appIconClicked();
 
+    /** Listener for navigation menu open signals */
+    void aboutToShowNavigationMenu();
+
+    /** Listener for navigation menu close signals */
+    void aboutToHideNavigationMenu();
+
+    /** Listener for screen rotation events */
+    void screenGeometryChanged(const QRect &geometry);
 };
 
 #endif // ACTIONBAR_H
